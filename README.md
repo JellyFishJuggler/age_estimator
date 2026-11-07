@@ -27,7 +27,11 @@ The model is a fine-tuned **ResNet-18** that regresses age directly from a face 
 age_estimator/
 ├── app.py                      # FastAPI API + serves index.html
 ├── index.html                  # Minimal webcam UI (camera, start/stop, console)
-├── best_age_model.pth          # Trained checkpoint (git-ignored; created by training)
+├── best_age_model.pth          # Trained checkpoint (committed)
+├── hf_space/                   # Standalone Gradio app for Hugging Face Spaces
+│   ├── app.py
+│   ├── README.md               # Space metadata (sdk, app_file, python_version)
+│   └── requirements.txt        # CPU-only wheels
 ├── pyproject.toml              # Project metadata & dependencies (uv)
 ├── requirements.txt            # Pinned plain-pip equivalent
 ├── uv.lock                     # Lockfile
@@ -58,6 +62,7 @@ e.g. 25_0_1_20170116174525125.jpg
 | Model | PyTorch `2.14.1` + torchvision `0.29.1` (CUDA 13.0 wheels) |
 | Face detection | MTCNN via `facenet-pytorch` `2.5.3` |
 | API | FastAPI + Uvicorn |
+| Hosted demo | Gradio on Hugging Face Spaces |
 | Video / images | OpenCV, Pillow |
 | Data | pandas, NumPy |
 | Packaging | uv (`pyproject.toml` + `uv.lock`) |
@@ -212,19 +217,41 @@ Response shape:
 
 ---
 
-## ☁️ Deploying to Render
+## ☁️ Deploying to Hugging Face Spaces (Gradio)
 
-`best_age_model.pth` (~43 MB) is committed to the repo because Render only builds from Git. The dataset stays ignored.
+The `hf_space/` folder is a **self-contained Gradio Space**:
 
-| Setting | Value |
-| ------- | ----- |
-| Runtime | Python 3 |
-| Build command | `uv sync --locked` (or `pip install -r requirements.txt`) |
-| Start command | `uvicorn app:app --host 0.0.0.0 --port $PORT` |
+```
+hf_space/
+├── README.md          # Space config (sdk: gradio, app_file: app.py, python_version: 3.12)
+├── app.py             # Webcam upload -> MTCNN -> ResNet-18 -> annotated image + JSON
+└── requirements.txt   # CPU-only torch/torchvision wheels
+```
 
-If you'd rather keep large weights out of Git, host the checkpoint elsewhere and set a `MODEL_URL` environment variable — `app.py` downloads it on startup when `best_age_model.pth` is missing.
+### Create the Space
 
-> The free Render instance has 512 MB RAM. PyTorch usually fits, but MTCNN inference is CPU-heavy, so expect slow responses. Upgrade the instance if the process gets OOM-killed.
+1. Go to <https://huggingface.co/new-space>.
+2. Choose **Gradio** as the SDK, **CPU basic (free)** as the hardware, and create the Space.
+3. Upload the three files from `hf_space/` (via **Files → Add file → Upload files**), or push with Git:
+
+   ```bash
+   cd hf_space
+   git init
+   git add .
+   git commit -m "Age estimator Gradio Space"
+   git remote add space https://huggingface.co/spaces/<username>/<space-name>
+   git push -u space main
+   ```
+
+4. The Space builds automatically. `README.md` inside `hf_space/` already sets `app_file: app.py`, `sdk: gradio`, and `python_version: "3.12"`.
+
+### Model weights
+
+The Space does **not** bundle the 43 MB checkpoint. On startup, `hf_space/app.py` looks for `best_age_model.pth` next to itself, then in `/tmp`, and finally downloads it from the main GitHub repo. To avoid that download (faster cold starts), upload `best_age_model.pth` from the repo root into the Space root.
+
+To use different weights, set a `MODEL_URL` environment variable in the Space settings.
+
+> Free Spaces sleep after inactivity, so the first request after a pause may take a while (cold start + model load). CPU inference is a few seconds per image.
 
 ---
 

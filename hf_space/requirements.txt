@@ -1,0 +1,9 @@
+# CPU-only PyTorch wheels for the free Hugging Face Space
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch==2.14.1+cpu
+torchvision==0.29.1+cpu
+facenet-pytorch==2.5.3
+
+numpy>=1.26,<3
+pillow>=10.1,<13
