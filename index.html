@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Age Estimator</title>
+    <link rel="icon" href="data:,">
+    <style>
+        :root { color-scheme: dark; }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: #090d16;
+            color: #e2e8f0;
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        }
+
+        .app {
+            width: min(880px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Button sits directly above the frame, right edge aligned with it */
+        .topbar {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .viewport {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            overflow: hidden;
+            border: 1px solid #1e293b;
+            border-radius: 14px;
+            background: #020617;
+        }
+
+        video,
+        canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .hidden { display: none !important; }
+
+        .placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: 0;
+            border-radius: 10px;
+            background: #2563eb;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover { background: #1d4ed8; }
+        button.running { background: #dc2626; }
+        button.running:hover { background: #b91c1c; }
+
+        .console {
+            height: 150px;
+            overflow-y: auto;
+            padding: 10px 12px;
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            background: #020617;
+            font-family: ui-monospace, Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .console div { white-space: pre-wrap; }
+        .console .ok { color: #4ade80; }
+        .console .error { color: #f87171; }
+        .console .muted { color: #64748b; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="topbar">
+            <button id="powerBtn" onclick="toggleCamera()">
+                <span id="powerBtnText">Start Camera</span>
+            </button>
+        </div>
+
+        <div class="viewport">
+            <video id="webcamVideo" autoplay playsinline muted class="hidden"></video>
+            <canvas id="overlayCanvas" class="hidden"></canvas>
+            <div id="cameraPlaceholder" class="placeholder">Camera off</div>
+        </div>
+
+        <div id="logContainer" class="console"></div>
+    </div>
+
+    <script>
+        // =====================================================================
+        // API CONNECTION
+        // ---------------------------------------------------------------------
+        // Requests always go to the FastAPI server. This page may be served
+        // by FastAPI (8000), VS Code Live Server (5500), or opened from disk.
+        // Change API_PORT if uvicorn is started with a different --port.
+        // =====================================================================
+        const API_HOST = '127.0.0.1';
+        const API_PORT = 8000;
+        const API_BASE = (() => {
+            const protocol = window.location.protocol === 'file:' ? 'http:' : window.location.protocol;
+            return `${protocol}//${API_HOST}:${API_PORT}`;
+        })();
+
+        const API_INTERVAL_MS = 500;
+        const MIN_CONFIDENCE = 0.50;
+
+        const els = {
+            video: document.getElementById('webcamVideo'),
+            overlay: document.getElementById('overlayCanvas'),
+            placeholder: document.getElementById('cameraPlaceholder'),
+            powerBtn: document.getElementById('powerBtn'),
+            powerText: document.getElementById('powerBtnText'),
+            log: document.getElementById('logContainer'),
+        };
+
+        const captureCanvas = document.createElement('canvas');
+
+        let stream = null;
+        let running = false;
+        let busy = false;
+        let timer = null;
+        let errorCount = 0;
+        let lastErrorAt = 0;
+        let lastNoFaceLogAt = 0;
+
+        // ---------------------------------------------------------------------
+        // Camera controls
+        // ---------------------------------------------------------------------
+        function toggleCamera() {
+            return running ? stopCamera() : startCamera();
+        }
+
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+                    audio: false,
+                });
+            } catch (err) {
+                addLog(`${err.name}: ${err.message}`, 'error');
+                return;
+            }
+
+            els.video.srcObject = stream;
+            await els.video.play();
+
+            els.placeholder.classList.add('hidden');
+            els.video.classList.remove('hidden');
+            els.overlay.classList.remove('hidden');
+
+            els.overlay.width = els.video.videoWidth;
+            els.overlay.height = els.video.videoHeight;
+
+            els.powerText.textContent = 'Stop Camera';
+            els.powerBtn.classList.add('running');
+
+            running = true;
+            errorCount = 0;
+            addLog(`Camera started (${els.video.videoWidth}x${els.video.videoHeight})`, 'ok');
+            scheduleInference(0);
+        }
+
+        function stopCamera() {
+            running = false;
+            clearTimeout(timer);
+
+            if (stream) stream.getTracks().forEach((track) => track.stop());
+            stream = null;
+
+            els.video.srcObject = null;
+            els.video.classList.add('hidden');
+            els.overlay.classList.add('hidden');
+            els.placeholder.classList.remove('hidden');
+
+            els.powerText.textContent = 'Start Camera';
+            els.powerBtn.classList.remove('running');
+
+            clearOverlay();
+            addLog('Camera stopped', 'muted');
+        }
+
+        // ---------------------------------------------------------------------
+        // Inference loop: capture frame -> POST /predict_face -> draw boxes
+        // ---------------------------------------------------------------------
+        function scheduleInference(delay = API_INTERVAL_MS) {
+            clearTimeout(timer);
+            timer = setTimeout(runInference, delay);
+        }
+
+        async function runInference() {
+            if (!running || busy) return;
+            if (document.hidden) { scheduleInference(1000); return; }
+            if (!els.video.videoWidth) { scheduleInference(300); return; }
+
+            busy = true;
+            try {
+                const blob = await captureFrame();
+                if (!blob) return;
+
+                const form = new FormData();
+                form.append('file', blob, 'frame.jpg');
+
+                const res = await fetch(`${API_BASE}/predict_face`, {
+                    method: 'POST',
+                    body: form,
+                });
+                if (!res.ok) throw new Error(`API returned ${res.status}`);
+
+                renderResult(await res.json());
+                errorCount = 0;
+            } catch (err) {
+                errorCount += 1;
+                const now = Date.now();
+
+                if (now - lastErrorAt > 4000) {
+                    lastErrorAt = now;
+                    addLog(`${err.message} — ${API_BASE}/predict_face (is uvicorn running?)`, 'error');
+                }
+            } finally {
+                busy = false;
+                if (running) scheduleInference(errorCount > 0 ? 3000 : API_INTERVAL_MS);
+            }
+        }
+
+        function captureFrame() {
+            return new Promise((resolve) => {
+                if (!els.video.videoWidth) { resolve(null); return; }
+
+                captureCanvas.width = els.video.videoWidth;
+                captureCanvas.height = els.video.videoHeight;
+                captureCanvas.getContext('2d').drawImage(els.video, 0, 0);
+                captureCanvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.85);
+            });
+        }
+
+        function renderResult(result) {
+            const faces = ((result && result.data) || []).filter(
+                (face) => (face.confidence ?? 1) >= MIN_CONFIDENCE
+            );
+
+            clearOverlay();
+
+            if (faces.length === 0) {
+                const now = Date.now();
+                if (now - lastNoFaceLogAt > 3000) {
+                    lastNoFaceLogAt = now;
+                    addLog('No face detected', 'muted');
+                }
+                return;
+            }
+
+            const ctx = els.overlay.getContext('2d');
+            const lineWidth = Math.max(2, els.overlay.width / 300);
+            const fontSize = Math.max(14, els.overlay.width / 42);
+
+            faces.forEach((face) => {
+                const [x1, y1, x2, y2] = face.box;
+
+                ctx.strokeStyle = '#22c55e';
+                ctx.lineWidth = lineWidth;
+                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+                const label = `${face.predicted_age.toFixed(1)} yrs`;
+                ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+
+                const textWidth = ctx.measureText(label).width;
+                const pad = 6;
+                const labelY = y1 - fontSize - pad * 2 >= 0 ? y1 - fontSize - pad * 2 : y1 + 2;
+
+                ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
+                ctx.fillRect(x1, labelY, textWidth + pad * 2, fontSize + pad);
+                ctx.fillStyle = '#4ade80';
+                ctx.fillText(label, x1 + pad, labelY + fontSize);
+            });
+
+            addLog(
+                `${faces.length} face${faces.length > 1 ? 's' : ''} | ` +
+                `${faces.map((f) => `${f.predicted_age.toFixed(1)} yrs`).join(', ')}`
+            );
+        }
+
+        function clearOverlay() {
+            const ctx = els.overlay.getContext('2d');
+            ctx.clearRect(0, 0, els.overlay.width, els.overlay.height);
+        }
+
+        // ---------------------------------------------------------------------
+        // Console log
+        // ---------------------------------------------------------------------
+        function addLog(message, kind = '') {
+            const line = document.createElement('div');
+            if (kind) line.className = kind;
+
+            const time = new Date().toLocaleTimeString([], { hour12: false });
+            line.textContent = `[${time}] ${message}`;
+
+            els.log.appendChild(line);
+            while (els.log.children.length > 60) els.log.removeChild(els.log.firstChild);
+            els.log.scrollTop = els.log.scrollHeight;
+        }
+
+        // ---------------------------------------------------------------------
+        // Boot
+        // ---------------------------------------------------------------------
+        addLog(`API target: ${API_BASE}`, 'muted');
+        addLog('Press "Start Camera" to begin', 'muted');
+
+        window.addEventListener('beforeunload', () => {
+            if (stream) stream.getTracks().forEach((track) => track.stop());
+        });
+    </script>
+</body>
+</html>

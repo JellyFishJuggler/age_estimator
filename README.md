@@ -1,13 +1,21 @@
 # Age Estimator 🧑‍💻
 
-A real-time age estimation app built with **PyTorch** and **OpenCV**. It fine-tunes a pretrained **ResNet-18** to regress age directly from a face image, then uses a webcam feed with Haar Cascade face detection to predict and display age live on screen.
+A real-time age estimation project built with **PyTorch** and **OpenCV**, with two ways to run it:
+
+- a **desktop webcam window**, and
+- a minimal **browser UI** backed by a **FastAPI** endpoint.
+
+The model is a fine-tuned **ResNet-18** that regresses age directly from a face image. Faces are located with **MTCNN** ([facenet-pytorch](https://github.com/timesler/facenet-pytorch)), and the predicted age is drawn live over the video feed.
 
 ---
 
 ## ✨ Features
 
 - **Transfer learning** — ImageNet-pretrained ResNet-18 with a custom regression head
+- **Robust face detection** — MTCNN (`facenet-pytorch`) handles angles, lighting, and small faces, and filters low-confidence detections
 - **Real-time inference** — Detects faces from a webcam feed and labels each face with its predicted age
+- **Desktop + browser** — Native OpenCV window or a minimal browser UI (camera, start/stop button, status console)
+- **REST API** — `POST /predict_face` accepts an image and returns face boxes, ages, and confidences
 - **Lightweight dataset builder** — Parses UTKFace-style filenames into a CSV automatically
 - **Sensible defaults** — MAE loss, AdamW, data augmentation, and best-checkpoint saving out of the box
 
@@ -17,17 +25,22 @@ A real-time age estimation app built with **PyTorch** and **OpenCV**. It fine-tu
 
 ```
 age_estimator/
-├── best_age_model.pth          # Saved model checkpoint (created after training)
+├── app.py                      # FastAPI API + serves index.html
+├── index.html                  # Minimal webcam UI (camera, start/stop, console)
+├── best_age_model.pth          # Trained checkpoint (git-ignored; created by training)
 ├── pyproject.toml              # Project metadata & dependencies (uv)
-├── requirements.txt
+├── requirements.txt            # Pinned plain-pip equivalent
+├── uv.lock                     # Lockfile
 └── src/
     └── age_estimator/
         ├── __init__.py
         ├── data.py             # Scans images, builds dataset.csv
         ├── cnn_train.py        # Training + validation loop
-        ├── main.py             # Real-time webcam age estimation
-        └── data/               # Dataset images (UTKFace format)
+        ├── main.py             # Real-time webcam age estimation (desktop)
+        └── data/               # Dataset images (UTKFace format, git-ignored)
 ```
+
+> `src/age_estimator/data/`, `dataset.csv`, and `*.pth` checkpoints are **git-ignored**. Train the model first (step 4) before running either the desktop or browser app.
 
 Dataset files are expected to follow the **UTKFace** naming convention:
 
@@ -37,6 +50,17 @@ e.g. 25_0_1_20170116174525125.jpg
 ```
 
 `age` is the target; `gender` and `race` are parsed as extra metadata but are **not** used for training.
+
+### Tech stack
+
+| Layer | Tools |
+| ----- | ----- |
+| Model | PyTorch `2.14.1` + torchvision `0.29.1` (CUDA 13.0 wheels) |
+| Face detection | MTCNN via `facenet-pytorch` `2.5.3` |
+| API | FastAPI + Uvicorn |
+| Video / images | OpenCV, Pillow |
+| Data | pandas, NumPy |
+| Packaging | uv (`pyproject.toml` + `uv.lock`) |
 
 ---
 
@@ -104,6 +128,41 @@ A window titled **"Custom PyTorch Real-Time Age Estimator"** opens with your web
 
 Press **`q`** to quit.
 
+### 6. Run the browser UI
+
+The same model is also exposed as a **FastAPI** endpoint and used by `index.html`:
+
+```bash
+uv run uvicorn app:app --reload --port 8000
+```
+
+Then open <http://127.0.0.1:8000/>.
+
+The page is intentionally minimal — it contains only:
+
+- a **webcam viewport**, with detected faces and ages drawn on an overlay canvas,
+- a **Start / Stop Camera** button, and
+- a **status console** for the API target, detections, and errors.
+
+FastAPI serves `index.html` at `/`, so the UI and API share an origin. The script still targets `http://127.0.0.1:8000` explicitly (`API_HOST` / `API_PORT` near the top of the script), so the same page also works through VS Code Live Server (port `5500`) or when opened from disk (`file://`). CORS is enabled in `app.py`; change `API_PORT` if your API runs elsewhere.
+
+| Endpoint | Method | Description |
+| -------- | ------ | ----------- |
+| `/` | `GET` | Serves the browser UI |
+| `/predict_face` | `POST` | Accepts multipart form-data (`file` = image) and returns detected boxes + ages |
+| `/docs` | `GET` | Auto-generated Swagger UI |
+
+Response shape:
+
+```json
+{
+  "faces_found": 1,
+  "data": [{ "box": [x1, y1, x2, y2], "predicted_age": 27.4, "confidence": 0.998 }]
+}
+```
+
+> The page captures a webcam frame every ~500 ms, POSTs it to `/predict_face`, filters detections below `0.50` confidence, and draws the returned boxes and age labels on the overlay. If the API is unreachable it backs off to one retry every 3 seconds instead of spamming requests.
+
 ---
 
 ## 🧠 How It Works
@@ -124,30 +183,32 @@ Press **`q`** to quit.
 
 **Inference pipeline**
 
-1. Capture a frame from the webcam with OpenCV.
-2. Detect faces using `haarcascade_frontalface_default.xml`.
-3. Convert each face crop to RGB, resize to `224×224`, and normalize.
+1. Capture a frame — OpenCV in `main.py`, or a canvas snapshot sent to `app.py` from the browser.
+2. Detect faces with **MTCNN** (`facenet_pytorch.MTCNN`), keeping detections above a confidence threshold.
+3. Crop each face in RGB, add a 15% margin, resize to `224×224`, and normalize.
 4. Run it through the loaded ResNet-18 and read the scalar age output.
-5. Draw the bounding box and predicted age on the frame.
+5. Draw the bounding box and predicted age — on the OpenCV window or the HTML overlay canvas.
 
 ---
 
 ## ⚠️ Limitations
 
-- Haar Cascade detection can miss faces in poor lighting, at odd angles, or when partially occluded.
+- MTCNN is heavier than Haar Cascade and can be slow on CPU or with many faces in frame.
 - Age is treated as a pure regression target, so predictions are approximate (± a few years).
 - The model is only as good as the training data — UTKFace has skewed age and demographic distributions.
 - Accuracy drops on heavily blurred or very low-resolution webcam frames.
+- The browser canvas API requires `localhost` or HTTPS, and the FastAPI server must be running for the web UI.
 
 ---
 
 ## 🛣️ Ideas for Improvement
 
-- Replace Haar Cascade with a modern detector (MTCNN, RetinaFace, MediaPipe).
+- Try RetinaFace or MediaPipe for faster/more accurate detection than MTCNN.
 - Add a gender/race multi-task head using the existing metadata.
 - Experiment with deeper backbones (ResNet-50, EfficientNet) or ordinal age classification.
 - Track and plot train/validation MAE curves.
 - Add a CLI flag to accept image files in addition to webcam input.
+- Add a `Dockerfile` and deploy the FastAPI app.
 
 ---
 
