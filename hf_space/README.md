@@ -37,3 +37,4 @@ If your weights live elsewhere, set the `MODEL_URL` environment variable in the 
 - A face crop is padded by 15% to match the UTKFace-style training images.
 - The free tier is used; expect a few seconds per image.
 - PyTorch is pinned to `2.13.0` / torchvision `0.28.0`, which the ZeroGPU allow-list accepts, so the build works on both ZeroGPU and CPU basic hardware.
+- The app declares one no-op `@spaces.GPU` function bound to a hidden button: ZeroGPU refuses to start without one (`No @spaces.GPU function detected during startup`). It is never called, so no GPU quota is spent and inference stays on the CPU container.

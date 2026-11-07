@@ -229,6 +229,8 @@ hf_space/
 ```
 
 > `requirements.txt` deliberately pins torch **2.13.0** / torchvision **0.28.0**: these are on the ZeroGPU allow-list *and* run on CPU basic, so the Space builds whichever hardware is selected. `app.py` runs inference on CPU (set `DEVICE=cuda` only on real GPU hardware).
+>
+> ZeroGPU also refuses to start an app with no `@spaces.GPU` function (`No @spaces.GPU function detected during startup`). `hf_space/app.py` therefore declares a no-op `@spaces.GPU` probe bound to a hidden button. It is never called, so no GPU quota is used; if you move the Space to CPU basic the probe simply becomes inert.
 
 ### Create the Space
 
