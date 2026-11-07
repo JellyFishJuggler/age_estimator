@@ -35,4 +35,5 @@ If your weights live elsewhere, set the `MODEL_URL` environment variable in the 
 
 - Detections below `0.50` confidence are ignored.
 - A face crop is padded by 15% to match the UTKFace-style training images.
-- The free CPU tier is used; expect a few seconds per image.
+- The free tier is used; expect a few seconds per image.
+- PyTorch is pinned to `2.13.0` / torchvision `0.28.0`, which the ZeroGPU allow-list accepts, so the build works on both ZeroGPU and CPU basic hardware.

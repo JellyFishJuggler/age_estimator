@@ -225,8 +225,10 @@ The `hf_space/` folder is a **self-contained Gradio Space**:
 hf_space/
 ├── README.md          # Space config (sdk: gradio, app_file: app.py, python_version: 3.12)
 ├── app.py             # Webcam upload -> MTCNN -> ResNet-18 -> annotated image + JSON
-└── requirements.txt   # CPU-only torch/torchvision wheels
+└── requirements.txt   # torch 2.13.0 + torchvision 0.28.0 (ZeroGPU & CPU compatible)
 ```
+
+> `requirements.txt` deliberately pins torch **2.13.0** / torchvision **0.28.0**: these are on the ZeroGPU allow-list *and* run on CPU basic, so the Space builds whichever hardware is selected. `app.py` runs inference on CPU (set `DEVICE=cuda` only on real GPU hardware).
 
 ### Create the Space
 

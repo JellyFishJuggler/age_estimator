@@ -48,7 +48,10 @@ def _resolve_model_path() -> Path:
 
 model_path = _resolve_model_path()
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Default to CPU. On ZeroGPU hardware, CUDA is emulated outside @spaces.GPU,
+# so running the model on the CPU container is simpler and avoids using up
+# GPU quota for a few-seconds inference.
+device = torch.device(os.getenv("DEVICE", "cpu"))
 print(f"Using device: {device}")
 
 model = models.resnet18(weights=None)

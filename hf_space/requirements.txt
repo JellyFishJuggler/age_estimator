@@ -1,8 +1,8 @@
-# CPU-only PyTorch wheels for the free Hugging Face Space
---extra-index-url https://download.pytorch.org/whl/cpu
-
-torch==2.14.1+cpu
-torchvision==0.29.1+cpu
+# PyTorch versions must match what the Space hardware accepts.
+# 2.13.0 / 0.28.0 are on the ZeroGPU allow-list and also run fine on CPU
+# basic, so the Space builds no matter which hardware is selected.
+torch==2.13.0
+torchvision==0.28.0
 facenet-pytorch==2.5.3
 
 numpy>=1.26,<3
