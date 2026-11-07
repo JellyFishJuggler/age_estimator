@@ -40,7 +40,7 @@ age_estimator/
         └── data/               # Dataset images (UTKFace format, git-ignored)
 ```
 
-> `src/age_estimator/data/`, `dataset.csv`, and `*.pth` checkpoints are **git-ignored**. Train the model first (step 4) before running either the desktop or browser app.
+> `src/age_estimator/data/` and `dataset.csv` are **git-ignored**. The trained `best_age_model.pth` is **committed** so the deployed API has its weights; retrain and commit it again if you change the model.
 
 Dataset files are expected to follow the **UTKFace** naming convention:
 
@@ -209,6 +209,22 @@ Response shape:
 - Track and plot train/validation MAE curves.
 - Add a CLI flag to accept image files in addition to webcam input.
 - Add a `Dockerfile` and deploy the FastAPI app.
+
+---
+
+## ☁️ Deploying to Render
+
+`best_age_model.pth` (~43 MB) is committed to the repo because Render only builds from Git. The dataset stays ignored.
+
+| Setting | Value |
+| ------- | ----- |
+| Runtime | Python 3 |
+| Build command | `uv sync --locked` (or `pip install -r requirements.txt`) |
+| Start command | `uvicorn app:app --host 0.0.0.0 --port $PORT` |
+
+If you'd rather keep large weights out of Git, host the checkpoint elsewhere and set a `MODEL_URL` environment variable — `app.py` downloads it on startup when `best_age_model.pth` is missing.
+
+> The free Render instance has 512 MB RAM. PyTorch usually fits, but MTCNN inference is CPU-heavy, so expect slow responses. Upgrade the instance if the process gets OOM-killed.
 
 ---
 

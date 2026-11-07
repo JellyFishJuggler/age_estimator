@@ -1,7 +1,7 @@
 import cv2
 import torch
 import torch.nn as nn
-from torchvision import transforms
+from torchvision import models, transforms
 from PIL import Image
 from pathlib import Path
 from facenet_pytorch import MTCNN
@@ -10,7 +10,7 @@ from facenet_pytorch import MTCNN
 device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', weights=None)
+model = models.resnet18(weights=None)
 num_features = model.fc.in_features
 model.fc = nn.Sequential(
     nn.Linear(num_features, 128),

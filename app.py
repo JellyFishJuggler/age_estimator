@@ -1,4 +1,6 @@
 import io
+import os
+import urllib.request
 from pathlib import Path
 
 import torch
@@ -8,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from facenet_pytorch import MTCNN
 from PIL import Image
-from torchvision import transforms
+from torchvision import models, transforms
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -26,7 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', weights=None)
+model = models.resnet18(weights=None)
 num_features = model.fc.in_features
 model.fc = nn.Sequential(
     nn.Linear(num_features, 128),
@@ -36,6 +38,17 @@ model.fc = nn.Sequential(
 )
 
 model_path = BASE_DIR / "best_age_model.pth"
+
+# The checkpoint is committed to the repo, but allow downloading it at
+# startup (useful if you keep large weights outside Git).
+if not model_path.exists():
+    model_url = os.getenv("MODEL_URL")
+    if not model_url:
+        raise FileNotFoundError(
+            f"{model_path} not found. Commit the checkpoint or set the MODEL_URL env var."
+        )
+    print(f"Downloading model checkpoint from {model_url} ...")
+    urllib.request.urlretrieve(model_url, model_path)
 
 model.load_state_dict(torch.load(model_path, map_location=device))
 model.to(device)
