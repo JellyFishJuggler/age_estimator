@@ -143,6 +143,8 @@ uv run uvicorn app:app --reload --port 8000
 
 Then open <http://127.0.0.1:8000/>.
 
+![Age Estimator browser UI](src/screenshot.png)
+
 The page is intentionally minimal — it contains only:
 
 - a **webcam viewport**, with detected faces and ages drawn on an overlay canvas,
