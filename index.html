@@ -1,14 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Age Estimator</title>
     <link rel="icon" href="data:,">
     <style>
-        :root { color-scheme: dark; }
+        :root {
+            color-scheme: dark;
+        }
 
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
 
         body {
             margin: 0;
@@ -54,7 +59,9 @@
             object-fit: cover;
         }
 
-        .hidden { display: none !important; }
+        .hidden {
+            display: none !important;
+        }
 
         .placeholder {
             position: absolute;
@@ -78,9 +85,17 @@
             transition: background 0.2s;
         }
 
-        button:hover { background: #1d4ed8; }
-        button.running { background: #dc2626; }
-        button.running:hover { background: #b91c1c; }
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button.running {
+            background: #dc2626;
+        }
+
+        button.running:hover {
+            background: #b91c1c;
+        }
 
         .console {
             height: 150px;
@@ -94,12 +109,24 @@
             line-height: 1.6;
         }
 
-        .console div { white-space: pre-wrap; }
-        .console .ok { color: #4ade80; }
-        .console .error { color: #f87171; }
-        .console .muted { color: #64748b; }
+        .console div {
+            white-space: pre-wrap;
+        }
+
+        .console .ok {
+            color: #4ade80;
+        }
+
+        .console .error {
+            color: #f87171;
+        }
+
+        .console .muted {
+            color: #64748b;
+        }
     </style>
 </head>
+
 <body>
     <div class="app">
         <div class="topbar">
@@ -119,18 +146,11 @@
 
     <script>
         // =====================================================================
-        // API CONNECTION
-        // ---------------------------------------------------------------------
-        // Requests always go to the FastAPI server. This page may be served
-        // by FastAPI (8000), VS Code Live Server (5500), or opened from disk.
-        // Change API_PORT if uvicorn is started with a different --port.
+        // API CONNECTION (Auto-switch between Local and Render Production)
         // =====================================================================
-        const API_HOST = '127.0.0.1';
-        const API_PORT = 8000;
-        const API_BASE = (() => {
-            const protocol = window.location.protocol === 'file:' ? 'http:' : window.location.protocol;
-            return `${protocol}//${API_HOST}:${API_PORT}`;
-        })();
+        const API_BASE = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
+            ? 'http://127.0.0.1:8000'                  // Local testing ke liye
+            : 'https://your-render-app-name.onrender.com'; // Yahan apna Render ka live backend URL daalna hai!
 
         const API_INTERVAL_MS = 500;
         const MIN_CONFIDENCE = 0.50;
@@ -245,7 +265,7 @@
 
                 if (now - lastErrorAt > 4000) {
                     lastErrorAt = now;
-                    addLog(`${err.message} — ${API_BASE}/predict_face (is uvicorn running?)`, 'error');
+                    addLog(`${err.message} — ${API_BASE}/predict_face (is backend running?)`, 'error');
                 }
             } finally {
                 busy = false;
@@ -337,8 +357,9 @@
         addLog('Press "Start Camera" to begin', 'muted');
 
         window.addEventListener('beforeunload', () => {
-            if (stream) stream.getTracks().forEach((track) => track.stop());
+            if (stream) stream.getTracks().layers.forEach((track) => track.stop());
         });
     </script>
 </body>
+
 </html>
